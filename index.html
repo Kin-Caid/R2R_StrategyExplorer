@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rain to River (R2R) Implementation Explorer</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Vis Network -->
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        wave0: '#64748b',
+                        wave1: '#2563eb',
+                        wave2: '#059669',
+                        wave3: '#d97706',
+                        wave4: '#7c3aed',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .vis-network:focus { outline: none; }
+        
+        /* Drawer Slide Animation */
+        @keyframes slideIn {
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+        }
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        /* Custom Scrollbar for modern look */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen overflow-hidden flex flex-col">
+    <div id="root" class="h-full flex flex-col"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- ICONS (INLINE SVG) ---
+        const Icons = {
+            Search: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>,
+            X: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
+            Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+            Download: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>,
+            RefreshCw: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>,
+            Network: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>,
+            Kanban: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>,
+            ArrowRight: () => <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        };
+
+        // --- DATASET ---
+        const INITIAL_R2R_DATA = [
+            {
+                id: "W0-01",
+                title: "Ownership & Leadership Assignment",
+                wave: 0,
+                timeframe: "2026 (First 30 Days)",
+                rationale: "Assign executive sponsors and commitment owners across Strategy Office and divisions.",
+                keyOutput: "Documented Leadership & Ownership Charter",
+                prereqs: [],
+                unlocks: ["3.1", "2.1", "3.5", "1.4", "2.3", "1.1", "1.7"],
+                phases: { p1: "Assign executive sponsors; establish PMO handoff structure." }
+            },
+            {
+                id: "W0-02",
+                title: "Comprehensive Workload Analysis Scoping",
+                wave: 0,
+                timeframe: "2026",
+                rationale: "Establish baseline staffing capacity to prevent overcommitting before R2R rollout.",
+                keyOutput: "Workload Analysis Scope & Capacity Baseline",
+                prereqs: [],
+                unlocks: ["1.3", "3.2", "1.1"],
+                phases: { p1: "Scope FTE baseline across field, technical, and administrative staff." }
+            },
+            {
+                id: "W0-03",
+                title: "Executive Adoption of Equity Indicators",
+                wave: 0,
+                timeframe: "2026",
+                rationale: "Executive Team decision on Equity Data Team recommended indicators (EDT PCA).",
+                keyOutput: "Formal Executive Adoption Decision on EDT Indicators",
+                prereqs: [],
+                unlocks: ["1.4", "2.1", "2.2", "3.3"],
+                phases: { p1: "Executive Team formal decision to adopt or document specific blockers." }
+            },
+            {
+                id: "W0-04",
+                title: "City Attorney Legal Opinion on Equity Criteria",
+                wave: 0,
+                timeframe: "2026",
+                rationale: "Ensure socioeconomic place-based criteria are legally defensible.",
+                keyOutput: "City Attorney Written Legal Opinion",
+                prereqs: [],
+                unlocks: ["3.3", "1.4"],
+                phases: { p1: "Request and secure formal opinion on place-based criteria." }
+            },
+            {
+                id: "W0-05",
+                title: "PMO Model & Scope Sign-Off",
+                wave: 0,
+                timeframe: "2026",
+                rationale: "Define PMO decision authority (RACI) vs division authority before building tracker.",
+                keyOutput: "Signed PMO Scope & Authority Document",
+                prereqs: [],
+                unlocks: ["3.5"],
+                phases: { p1: "Circulate PMO scope with division leads and secure sign-off." }
+            },
+            {
+                id: "W0-06",
+                title: "CAG Budget & Compensation Confirmation",
+                wave: 0,
+                timeframe: "2026",
+                rationale: "Secure approved funding for stipends, translation, and logistics before recruitment.",
+                keyOutput: "Confirmed CAG Participation Budget Line",
+                prereqs: [],
+                unlocks: ["1.2"],
+                phases: { p1: "Lock line-item budget for member compensation and support." }
+            },
+            {
+                id: "W0-07",
+                title: "IT Centralization Impact Assessment",
+                wave: 0,
+                timeframe: "2026",
+                rationale: "Document Data Analytics & Data Science staff at risk of moving to CTM.",
+                keyOutput: "DA/DS Capacity Protection Case Document",
+                prereqs: [],
+                unlocks: ["2.3", "1.3"],
+                phases: { p1: "Document critical data functions that must remain within AWP." }
+            },
+            {
+                id: "3.1",
+                title: "Define Clear and Achievable Levels of Service",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Build shared internal clarity on what AWP promises and what it cannot deliver.",
+                keyOutput: "Approved Executive Level of Service (LOS) Framework",
+                prereqs: ["W0-01", "2.3", "1.4"],
+                unlocks: ["3.2", "3.3", "2.2", "3.6", "1.6"],
+                phases: {
+                    p1: "Inventory current service norms, define service categories, draft & adopt LOS Framework.",
+                    p2: "Integrate LOS into Maximo and DSS; initiate annual performance reviews.",
+                    p3: "Conduct 2nd LOS revision cycle using actual performance data.",
+                    p4: "Publish annual performance report; embed PMO ownership permanently."
+                }
+            },
+            {
+                id: "2.1",
+                title: "Create a Holistic Watershed Health Framework",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Establish an integrated picture of watershed health across flood, quality, and equity.",
+                keyOutput: "Adopted Watershed Health Framework (WHF 1.0)",
+                prereqs: ["W0-01", "W0-03"],
+                unlocks: ["2.2", "2.5", "3.3", "2.8", "3.5"],
+                phases: {
+                    p1: "Inventory indicators, resolve EII transition, publish WHF 1.0 with known limitations.",
+                    p2: "Transition CIP prioritization from problem scores to WHF criteria.",
+                    p3: "Publish 1st annual watershed report cards for all major watersheds.",
+                    p4: "Embed WHF into annual business planning and multi-departmental contexts."
+                }
+            },
+            {
+                id: "3.5",
+                title: "Create a Portfolio Management Office",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Central coordination hub to track dependencies, capacity, and commitment trade-offs.",
+                keyOutput: "Integrated Portfolio Tracker & Decision Authority RACI",
+                prereqs: ["W0-01", "W0-05"],
+                unlocks: ["2.7", "3.3", "3.2", "3.6"],
+                phases: {
+                    p1: "Scope PMO, build integrated portfolio tracker, publish Decision Authority RACI.",
+                    p2: "Connect portfolio tracker to WHF/LOS frameworks; expand RACI to Wave 2.",
+                    p3: "Conduct mid-plan portfolio review; integrate PMO into annual budget cycle.",
+                    p4: "Transition PMO to ongoing permanent operational function."
+                }
+            },
+            {
+                id: "1.4",
+                title: "Create a Shared Framework for Equity",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Formalize equity indicators and decision criteria so equity practice is consistent.",
+                keyOutput: "Formally Adopted Equity Framework Document & Toolkit",
+                prereqs: ["W0-01", "W0-03", "W0-04"],
+                unlocks: ["3.3", "3.4", "2.1", "3.1"],
+                phases: {
+                    p1: "Adopt EDT indicators, draft operational framework, publish Equity Toolkit, apply to 3 decisions.",
+                    p2: "Embed equity indicators as required layer in WHF assessments and CIP scoring.",
+                    p3: "Incorporate CAG-defined priorities; refine data to sub-watershed scale.",
+                    p4: "Publish decade-end equity outcomes assessment; transition stewardship."
+                }
+            },
+            {
+                id: "2.3",
+                title: "Enhance Data and Modeling Capabilities",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Build the data infrastructure, linear asset Maximo integration, and 2D flood model.",
+                keyOutput: "Data Health Inventory & Local Flood 2D Decision",
+                prereqs: ["W0-01", "W0-07"],
+                unlocks: ["2.1", "2.2", "2.5", "3.1", "3.2", "2.4", "2.7"],
+                phases: {
+                    p1: "Conduct Data Health Inventory, establish standards, resolve Local Flood 2D funding decision.",
+                    p2: "Integrate flood/erosion/quality/equity in DSS; complete Maximo linear asset integration.",
+                    p3: "Publish Local Flood 2D Modeling outputs publicly; retire fragile data assets.",
+                    p4: "Transfer data ownership to documented SOPs; publish decade-end assessment."
+                }
+            },
+            {
+                id: "1.1",
+                title: "Create a Dedicated Community Liaison Role",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Institutional anchor for building sustained relationships with underrepresented communities.",
+                keyOutput: "Hired Community Liaison & Formal Intermediary Partnerships",
+                prereqs: ["W0-01", "W0-02"],
+                unlocks: ["1.2", "1.5", "1.6", "2.4", "1.7"],
+                phases: {
+                    p1: "Define role scope, hire permanent FTE, map community landscape, formalize 3-5 partnerships.",
+                    p2: "Anchor CAG launch (1.2); integrate community input into CIP prioritization.",
+                    p3: "Assess staffing capacity; publish community engagement section in progress report.",
+                    p4: "Contribute community voice to decade-end assessment; transfer knowledge."
+                }
+            },
+            {
+                id: "1.7",
+                title: "Enhance Readiness for Emergencies",
+                wave: 1,
+                timeframe: "2026–2028",
+                rationale: "Internal organizational wiring and equipment inspection required for disaster response.",
+                keyOutput: "Emergency Readiness Gap Assessment & Roles Document",
+                prereqs: ["W0-01", "1.1"],
+                unlocks: ["1.8", "1.5", "1.6", "2.7"],
+                phases: {
+                    p1: "Complete readiness gap audit, document emergency roles for all staff, establish inspection schedule.",
+                    p2: "Embed after-action review post-event practice; expand multilingual alert channels.",
+                    p3: "Feed 10-year event history into climate readiness planning.",
+                    p4: "Formalize contribution to HSEM citywide emergency framework."
+                }
+            },
+            {
+                id: "2.2",
+                title: "Create Clear and Meaningful Watershed Targets",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Set specific, measurable targets co-developed with community across health domains.",
+                keyOutput: "Formally Adopted Watershed Target Set & Baselines",
+                prereqs: ["2.1", "2.3", "1.2"],
+                unlocks: ["3.3", "2.5", "3.6", "2.4"],
+                phases: {
+                    p1: "Inventory candidate metrics, resolve equity indicators, design co-development process.",
+                    p2: "Establish baselines, co-develop targets with CAG, executive team formally adopts target set.",
+                    p3: "Review 3-year trend data; incorporate Local Flood 2D model data into baselines.",
+                    p4: "Publish decade-end watershed health assessment and disparity analysis."
+                }
+            },
+            {
+                id: "3.3",
+                title: "Implement an Equitable Decision-Making Approach",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Reparative investment framework that weights equity in CIP and spending decisions.",
+                keyOutput: "Adopted Environmental Reparative Investment Framework",
+                prereqs: ["1.4", "2.1", "3.1", "W0-04"],
+                unlocks: ["2.5", "3.4", "3.5", "2.6"],
+                phases: {
+                    p1: "Complete legal review, establish baseline SVI spending, pilot framework on 1 CIP cycle.",
+                    p2: "Formally adopt framework, apply to 1st full CIP ranking, integrate into PMO portfolio scoring.",
+                    p3: "Revise criteria based on 3-year data; integrate Local Flood 2D modeling equity data.",
+                    p4: "Conduct decade-end equity investment audit and community co-authored assessment."
+                }
+            },
+            {
+                id: "3.2",
+                title: "Center Asset Management in Decision-Making",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Connect asset condition and risk scores directly to CIP ranking and work orders.",
+                keyOutput: "Complete Asset Registry & Open Channel Inspection Launch",
+                prereqs: ["3.1", "2.3", "W0-02"],
+                unlocks: ["2.5", "3.5", "3.7"],
+                phases: {
+                    p1: "Confirm ownership of all 3 asset classes, get linear assets into Maximo, launch channel inspections.",
+                    p2: "Run 1st full CIP cycle with AMP-weighted scoring; produce life-cycle cost budget submission.",
+                    p3: "Complete 2nd full inspection cycle; contribute lifecycle data to 100-Year Plan.",
+                    p4: "Publish decade-end infrastructure condition assessment."
+                }
+            },
+            {
+                id: "1.3",
+                title: "Cultivate a Strong, Inclusive Workforce",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Equitable development, field staff advancement pathways, and DA/DS retention.",
+                keyOutput: "Comprehensive Workload Analysis & L&D Strategy",
+                prereqs: ["W0-02", "W0-07"],
+                unlocks: ["3.7", "3.8"],
+                phases: {
+                    p1: "Complete workload analysis, audit training access, document DA/DS protection plan.",
+                    p2: "Adopt L&D strategy, open field advancement pathways, deliver Spanish training.",
+                    p3: "Refine advancement tracks based on cohort 1; assess skill alignment against R2R demands.",
+                    p4: "Publish decade-end workforce equity assessment."
+                }
+            },
+            {
+                id: "1.5",
+                title: "Collaborate with Partners to Protect Vulnerable Populations",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Formalized protocols with HSO, ARR, and outreach teams for flood safety.",
+                keyOutput: "Signed MOUs with HSO & ARR + Storm Threshold Protocol",
+                prereqs: ["1.1", "1.7"],
+                unlocks: ["1.8", "2.7"],
+                phases: {
+                    p1: "Publish AWP role statement, execute MOUs with HSO/ARR, build storm threshold protocol.",
+                    p2: "Test storm protocol through flood season; pilot renter outreach in 2 high-risk areas.",
+                    p3: "Scale renter strategy; evaluate FTE capacity for unhoused population engagement.",
+                    p4: "Publish decade-end vulnerable population safety assessment."
+                }
+            },
+            {
+                id: "1.6",
+                title: "Enhance Community Education and Preparedness",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Scale Earth Camp/Clean Creek Campus to year-round funding and multilingual reach.",
+                keyOutput: "Education Reach Audit & Multilingual Strategy",
+                prereqs: ["1.1", "3.1"],
+                unlocks: ["1.2", "2.4"],
+                phases: {
+                    p1: "Audit reach gaps, build multi-year funding case for Earth Camp, design multilingual plan.",
+                    p2: "Secure stable multi-year funding for Earth Camp; deliver 6 co-hosted community events.",
+                    p3: "Assess reach trends; evaluate Earth Camp as a regional co-hosting model.",
+                    p4: "Publish decade-end education impact and community preparedness assessment."
+                }
+            },
+            {
+                id: "1.2",
+                title: "Create a Permanent Community Advisory Group",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Standing, compensated advisory body holding decision-making authority and co-creating targets.",
+                keyOutput: "CAG Mandate, Charter, Confirmed Budget & Council Resolution",
+                prereqs: ["1.1", "W0-06"],
+                unlocks: ["2.2", "3.3", "2.6", "3.6"],
+                phases: {
+                    p1: "Pre-convening listening via Liaison, co-design CAG charter, secure compensation budget, draft Council resolution.",
+                    p2: "Recruit & seat CAG, adopt Council resolution, activate equity audits & target co-creation.",
+                    p3: "Manage founding cohort transitions; expand scope to 3.3 equity framework and 2.6 GI.",
+                    p4: "Co-author community chapter of decade-end performance report (3.6)."
+                }
+            },
+            {
+                id: "1.8",
+                title: "Improve Response and Recovery After Major Storms",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "External interagency recovery coordination and trauma-informed practice.",
+                keyOutput: "Interagency Emergency Agreements & Trauma Training",
+                prereqs: ["1.7", "1.5"],
+                unlocks: ["2.7", "3.6"],
+                phases: {
+                    p1: "Formalize coordination agreements with HSEM/AFD/HSO, deliver trauma-informed training.",
+                    p2: "Run active recovery network; establish staff mental health debrief protocols.",
+                    p3: "Expand trauma-informed training to all emergency staff; update recovery protocols.",
+                    p4: "Publish decade-end response and recovery assessment."
+                }
+            },
+            {
+                id: "2.8",
+                title: "Collaborate to Promote Responsible Development",
+                wave: 2,
+                timeframe: "2027–2030",
+                rationale: "Clear WHF-grounded environmental expectations and override tracking for developers.",
+                keyOutput: "Development Guidance Document & Compliance Tracker",
+                prereqs: ["2.1"],
+                unlocks: ["2.7", "2.4"],
+                phases: {
+                    p1: "Translate WHF into developer guidance, build compliance tracking system, execute AWP-DSD protocol.",
+                    p2: "Audit internal review consistency; require mandatory rationale for DSD overrides.",
+                    p3: "Feed 2 years of compliance trend data into 2.7 policy work; launch public compliance tool.",
+                    p4: "Publish 10-year compliance trend assessment and DSD relationship quality review."
+                }
+            },
+            {
+                id: "2.5",
+                title: "Implement a Proactive Approach to Infrastructure",
+                wave: 3,
+                timeframe: "2029–2032",
+                rationale: "Funded standing proactive maintenance tier in CIP to break reactive cycle.",
+                keyOutput: "Proactive CIP Program Designation & Full Inspection Cycle",
+                prereqs: ["2.3", "2.1", "2.2", "3.2"],
+                unlocks: ["2.6", "3.6"],
+                phases: {
+                    p1: "Designate proactive CIP tier, establish equity criteria for proactive project selection.",
+                    p2: "Achieve full inspection coverage across ponds, drains, and channels.",
+                    p3: "Direct proactive spending toward highest deferred-maintenance SVI areas.",
+                    p4: "Publish decade-end reactive-to-proactive ratio shift assessment."
+                }
+            },
+            {
+                id: "3.4",
+                title: "Address and Repair Past Environmental Harms",
+                wave: 3,
+                timeframe: "2029–2032",
+                rationale: "Specific, accountable program to inventory and repair historical environmental damage.",
+                keyOutput: "Formal Harm Inventory & First Priority Site Repair",
+                prereqs: ["1.4", "2.1", "3.3", "1.2"],
+                unlocks: ["3.6"],
+                phases: {
+                    p1: "Produce formal inventory of documented harms; review draft with CAG.",
+                    p2: "Engage affected communities in co-designing repair for 3–5 priority sites.",
+                    p3: "Fund and begin physical repair at highest-priority site.",
+                    p4: "Publish public accountability record and community co-authored evaluation."
+                }
+            },
+            {
+                id: "3.7",
+                title: "Cultivate a Balanced and Proactive Work Culture",
+                wave: 3,
+                timeframe: "2029–2032",
+                rationale: "Transparent priority setting, field staff decision inclusion, and health tracking.",
+                keyOutput: "Published Priority Criteria & 2nd DMF Assessment",
+                prereqs: ["1.3", "3.2"],
+                unlocks: ["3.8"],
+                phases: {
+                    p1: "Publish transparent priority-setting criteria; establish field staff inclusion mechanisms.",
+                    p2: "Implement leadership communication playbook for reorgs/transitions.",
+                    p3: "Conduct 2nd department-wide organizational health survey (DMF baseline comparison).",
+                    p4: "Publish decade-end culture trend analysis."
+                }
+            },
+            {
+                id: "2.7",
+                title: "Interdepartmental Innovation Collaboratives",
+                wave: 3,
+                timeframe: "2029–2032",
+                rationale: "Formal cross-departmental partnerships around data, emergency, and climate.",
+                keyOutput: "Shared Data Products & Joint Emergency Protocol",
+                prereqs: ["2.3", "3.5", "2.8", "1.7"],
+                unlocks: ["2.6", "3.8"],
+                phases: {
+                    p1: "Secure ACM sponsorship; launch shared data network with Demographer, ACAR, APH.",
+                    p2: "Activate flood emergency collaborative with HSEM/AFD.",
+                    p3: "Activate development policy collaborative with DSD/Housing/Planning.",
+                    p4: "Publish annual collaborative outputs record and durability assessment."
+                }
+            },
+            {
+                id: "3.8",
+                title: "Maintain and Share Knowledge",
+                wave: 4,
+                timeframe: "2031–2035",
+                rationale: "Capture tacit institutional knowledge, build off-boarding procedures and library.",
+                keyOutput: "Consolidated Cross-Divisional Knowledge Library & R2R Retrospective",
+                prereqs: ["3.7", "2.7", "1.3"],
+                unlocks: ["3.6"],
+                phases: {
+                    p1: "Audit knowledge documentation gaps across all divisions.",
+                    p2: "Establish department-wide knowledge standard and off-boarding procedure.",
+                    p3: "Consolidate distributed knowledge into searchable central library.",
+                    p4: "Produce structured R2R Decade Retrospective for next planning cycle."
+                }
+            },
+            {
+                id: "3.6",
+                title: "Report Our Performance and Progress",
+                wave: 4,
+                timeframe: "2031–2035",
+                rationale: "Comprehensive, transparent public reporting co-authored with the CAG.",
+                keyOutput: "Decade-End Public Performance Report (with CAG Chapter)",
+                prereqs: ["2.2", "3.1", "3.5", "1.2", "3.3"],
+                unlocks: ["Next Decade Plan"],
+                phases: {
+                    p1: "Compile decade-long tracking dataset across all commitments.",
+                    p2: "Convene CAG to draft and publish unedited Community Chapter.",
+                    p3: "Publish Decade-End Performance Report in multiple languages.",
+                    p4: "Present findings in public session to City Council and community."
+                }
+            },
+            {
+                id: "2.4",
+                title: "Deliver Clear, Actionable Data to the Public",
+                wave: 4,
+                timeframe: "2031–2035",
+                rationale: "Public data tools answering resident questions (311 tracking, water quality).",
+                keyOutput: "Public Data Tool Suite (311 Tracker, Quality Map)",
+                prereqs: ["2.3", "2.2", "1.1", "2.8"],
+                unlocks: ["3.6"],
+                phases: {
+                    p1: "Conduct community research to identify top public data questions.",
+                    p2: "Build public tools (311 issue tracker, water quality map, investment map).",
+                    p3: "Establish multilingual non-digital access pathways.",
+                    p4: "Conduct annual tool usage and feedback evaluation."
+                }
+            },
+            {
+                id: "2.6",
+                title: "Support Community-Designed Green Infrastructure",
+                wave: 4,
+                timeframe: "2031–2035",
+                rationale: "Co-designed neighborhood green infrastructure with documented stewardship.",
+                keyOutput: "2-3 Completed GI Projects with Community Stewardship Agreements",
+                prereqs: ["2.1", "2.3", "2.5", "1.2", "2.7", "3.3"],
+                unlocks: ["Next Decade Plan"],
+                phases: {
+                    p1: "Conduct co-design process in 2-3 equity priority neighborhoods.",
+                    p2: "Assess community stewardship capacity and build support agreements.",
+                    p3: "Construct projects with signed stewardship agreements.",
+                    p4: "Conduct 1, 3, and 5-year post-completion environmental monitoring."
+                }
+            }
+        ];
+
+        // Ensure cross-references are complete (bidirectional indexing helper)
+        const normalizeData = (data) => {
+            const mapped = data.map(item => ({ ...item, prereqs: [...item.prereqs], unlocks: [...item.unlocks] }));
+            mapped.forEach(item => {
+                item.unlocks.forEach(unlockId => {
+                    const target = mapped.find(t => t.id === unlockId);
+                    if (target && !target.prereqs.includes(item.id)) target.prereqs.push(item.id);
+                });
+                item.prereqs.forEach(prereqId => {
+                    const source = mapped.find(t => t.id === prereqId);
+                    if (source && !source.unlocks.includes(item.id)) source.unlocks.push(item.id);
+                });
+            });
+            return mapped;
+        };
+
+        const WAVE_COLORS = {
+            0: '#64748b', // Slate
+            1: '#2563eb', // Blue
+            2: '#059669', // Emerald
+            3: '#d97706', // Amber
+            4: '#7c3aed'  // Purple
+        };
+
+        const WAVE_NAMES = [
+            "Wave 0: Pre-Reqs",
+            "Wave 1: Solidify",
+            "Wave 2: Activate",
+            "Wave 3: Deliver",
+            "Wave 4: Sustain"
+        ];
+
+        // --- COMPONENTS ---
+
+        const NetworkGraph = ({ items, selectedId, onSelect, waveFilter, searchQuery }) => {
+            const containerRef = useRef(null);
+            const networkRef = useRef(null);
+
+            useEffect(() => {
+                const options = {
+                    layout: {
+                        hierarchical: {
+                            direction: 'LR',
+                            sortMethod: 'directed',
+                            levelSeparation: 250,
+                            nodeSpacing: 100,
+                            treeSpacing: 100,
+                            parentCentralization: true
+                        }
+                    },
+                    physics: false,
+                    nodes: {
+                        shape: 'box',
+                        margin: 12,
+                        font: { face: 'Inter, sans-serif', size: 14 }
+                    },
+                    edges: {
+                        arrows: 'to',
+                        smooth: { type: 'cubicBezier' },
+                        width: 2
+                    },
+                    interaction: { hover: true }
+                };
+
+                networkRef.current = new vis.Network(containerRef.current, { nodes: [], edges: [] }, options);
+
+                networkRef.current.on("click", function (params) {
+                    if (params.nodes.length > 0) {
+                        onSelect(params.nodes[0]);
+                    } else {
+                        onSelect(null);
+                    }
+                });
+
+                return () => networkRef.current.destroy();
+            }, []);
+
+            useEffect(() => {
+                if (!networkRef.current) return;
+
+                // 1. Build adjacency list for upstream/downstream tracking
+                const adj = {}; const revAdj = {};
+                items.forEach(i => { adj[i.id] = []; revAdj[i.id] = []; });
+                items.forEach(i => {
+                    i.unlocks.forEach(u => { if (adj[i.id] && adj[u]) { adj[i.id].push(u); revAdj[u].push(i.id); } });
+                });
+
+                // 2. Identify upstream and downstream subsets
+                const upstream = new Set();
+                const downstream = new Set();
+                if (selectedId) {
+                    const dfs = (node, graph, set) => {
+                        graph[node]?.forEach(n => {
+                            if (!set.has(n)) { set.add(n); dfs(n, graph, set); }
+                        });
+                    };
+                    dfs(selectedId, revAdj, upstream);
+                    dfs(selectedId, adj, downstream);
+                }
+
+                // 3. Prepare Nodes
+                const wrapText = (text, max = 25) => {
+                    const words = text.split(' ');
+                    let lines = [], cur = '';
+                    words.forEach(w => {
+                        if ((cur + w).length > max) { lines.push(cur); cur = w + ' '; } 
+                        else cur += w + ' ';
+                    });
+                    lines.push(cur);
+                    return lines.join('\n').trim();
+                };
+
+                const nodes = items.map(item => {
+                    const isSelected = item.id === selectedId;
+                    const isUp = upstream.has(item.id);
+                    const isDown = downstream.has(item.id);
+                    
+                    let bg = WAVE_COLORS[item.wave];
+                    let font = '#ffffff';
+                    let opacity = 1;
+
+                    if (selectedId) {
+                        if (isSelected) bg = '#4f46e5'; // Indigo-600
+                        else if (isUp) bg = '#f97316'; // Orange/Red
+                        else if (isDown) bg = '#10b981'; // Emerald-500
+                        else { bg = '#f1f5f9'; font = '#94a3b8'; opacity = 0.5; }
+                    } else {
+                        const waveMatch = waveFilter === 'All' || item.wave.toString() === waveFilter;
+                        const searchMatch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+                        if (!waveMatch || !searchMatch) {
+                            bg = '#f1f5f9'; font = '#94a3b8'; opacity = 0.4;
+                        }
+                    }
+
+                    return {
+                        id: item.id,
+                        level: item.wave, // Lock to swimlanes
+                        label: `<b>${item.id}</b>\n${wrapText(item.title)}`,
+                        color: {
+                            background: bg,
+                            border: isSelected ? '#0f172a' : bg,
+                            highlight: { background: bg, border: '#0f172a' },
+                            hover: { background: bg, border: '#0f172a' }
+                        },
+                        font: { color: font, multi: 'html', bold: isSelected },
+                        borderWidth: isSelected ? 3 : 0,
+                        opacity: opacity,
+                        shadow: isSelected ? { enabled: true, color: 'rgba(0,0,0,0.2)', size: 10 } : false
+                    };
+                });
+
+                // 4. Prepare Edges
+                const edges = [];
+                items.forEach(i => {
+                    i.unlocks.forEach(u => {
+                        if (!items.find(x => x.id === u)) return;
+                        let color = '#cbd5e1'; // default dim
+                        let opacity = 0.5;
+
+                        if (selectedId) {
+                            if (upstream.has(i.id) && (upstream.has(u) || u === selectedId)) {
+                                color = '#f97316'; opacity = 1;
+                            } else if ((i.id === selectedId || downstream.has(i.id)) && downstream.has(u)) {
+                                color = '#10b981'; opacity = 1;
+                            } else {
+                                color = '#f1f5f9'; opacity = 0.2;
+                            }
+                        } else if (waveFilter === 'All' && !searchQuery) {
+                            color = '#cbd5e1'; opacity = 0.8;
+                        }
+
+                        edges.push({
+                            from: i.id,
+                            to: u,
+                            color: { color, opacity, highlight: color, hover: color }
+                        });
+                    });
+                });
+
+                networkRef.current.setData({ nodes, edges });
+            }, [items, selectedId, waveFilter, searchQuery]);
+
+            return <div ref={containerRef} className="w-full h-full bg-slate-50 outline-none" />;
+        };
+
+        const SwimlaneView = ({ items, selectedId, onSelect, waveFilter, searchQuery }) => {
+            const waves = [0, 1, 2, 3, 4];
+
+            // Same highlighting math
+            const adj = {}; const revAdj = {};
+            items.forEach(i => { adj[i.id] = []; revAdj[i.id] = []; });
+            items.forEach(i => {
+                i.unlocks.forEach(u => { if (adj[i.id] && adj[u]) { adj[i.id].push(u); revAdj[u].push(i.id); } });
+            });
+            const upstream = new Set();
+            const downstream = new Set();
+            if (selectedId) {
+                const dfs = (node, graph, set) => {
+                    graph[node]?.forEach(n => {
+                        if (!set.has(n)) { set.add(n); dfs(n, graph, set); }
+                    });
+                };
+                dfs(selectedId, revAdj, upstream);
+                dfs(selectedId, adj, downstream);
+            }
+
+            return (
+                <div className="w-full h-full overflow-x-auto bg-slate-50 flex p-6 gap-6">
+                    {waves.map(w => {
+                        if (waveFilter !== 'All' && w.toString() !== waveFilter) return null;
+                        
+                        const waveItems = items.filter(i => i.wave === w);
+                        
+                        return (
+                            <div key={w} className="flex-1 min-w-[300px] flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                <div className="p-4 border-b border-slate-100 font-semibold text-slate-800 flex items-center justify-between bg-slate-50/50">
+                                    <span>{WAVE_NAMES[w]}</span>
+                                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full border border-slate-200">{waveItems.length}</span>
+                                </div>
+                                <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
+                                    {waveItems.map(item => {
+                                        const isSelected = item.id === selectedId;
+                                        const isUp = upstream.has(item.id);
+                                        const isDown = downstream.has(item.id);
+                                        const searchMatch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+                                        
+                                        if (!searchMatch && searchQuery) return null;
+
+                                        let style = "bg-white border-slate-200 text-slate-700";
+                                        if (selectedId) {
+                                            if (isSelected) style = "bg-indigo-50 border-indigo-400 text-indigo-900 ring-2 ring-indigo-400 shadow-md";
+                                            else if (isUp) style = "bg-orange-50 border-orange-400 text-orange-900";
+                                            else if (isDown) style = "bg-emerald-50 border-emerald-400 text-emerald-900";
+                                            else style = "bg-white border-slate-200 text-slate-400 opacity-50";
+                                        }
+
+                                        return (
+                                            <div 
+                                                key={item.id} 
+                                                onClick={() => onSelect(item.id)}
+                                                className={`p-4 rounded-lg border shadow-sm cursor-pointer transition-all hover:shadow-md ${style}`}
+                                            >
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className="text-xs font-bold px-2 py-1 rounded text-white" style={{backgroundColor: WAVE_COLORS[w]}}>
+                                                        {item.id}
+                                                    </span>
+                                                    <span className="text-xs font-medium text-slate-500 line-clamp-1">{item.timeframe}</span>
+                                                </div>
+                                                <h3 className="font-medium text-sm mb-3 leading-snug">{item.title}</h3>
+                                                <div className="text-xs p-2 bg-slate-50 rounded border border-slate-100 mb-3 line-clamp-2">
+                                                    <span className="font-semibold text-slate-600">Output:</span> {item.keyOutput}
+                                                </div>
+                                                <div className="flex gap-2 text-xs font-medium">
+                                                    <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-1 rounded">
+                                                        <Icons.ArrowRight /> {item.prereqs.length} Pre-reqs
+                                                    </span>
+                                                    <span className="flex items-center gap-1 bg-slate-100 text-slate-600 px-2 py-1 rounded">
+                                                        {item.unlocks.length} Unlocks <Icons.ArrowRight />
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            );
+        };
+
+        const DetailDrawer = ({ item, onClose, onSelect, allItems }) => {
+            if (!item) return null;
+
+            return (
+                <div className="absolute right-0 top-0 bottom-0 w-96 bg-white border-l shadow-2xl z-20 flex flex-col animate-slide-in">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50">
+                        <div>
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs font-bold px-2 py-1 rounded text-white" style={{backgroundColor: WAVE_COLORS[item.wave]}}>
+                                    {item.id}
+                                </span>
+                                <span className="text-xs font-medium text-slate-500 bg-white px-2 py-1 rounded border shadow-sm">
+                                    {WAVE_NAMES[item.wave]}
+                                </span>
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-800 leading-tight">{item.title}</h2>
+                            <p className="text-sm text-slate-500 mt-2">{item.timeframe}</p>
+                        </div>
+                        <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
+                            <Icons.X />
+                        </button>
+                    </div>
+
+                    <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-8">
+                        
+                        <section>
+                            <h3 className="text-xs font-bold tracking-wider text-slate-400 uppercase mb-2">Why This Exists</h3>
+                            <p className="text-sm text-slate-700 leading-relaxed">{item.rationale}</p>
+                        </section>
+
+                        <section>
+                            <h3 className="text-xs font-bold tracking-wider text-slate-400 uppercase mb-2">Key Phase 1 Output</h3>
+                            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-indigo-900 font-medium shadow-sm">
+                                {item.keyOutput}
+                            </div>
+                        </section>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <section>
+                                <h3 className="text-xs font-bold tracking-wider text-orange-500 uppercase mb-2">Prerequisites ({item.prereqs.length})</h3>
+                                {item.prereqs.length === 0 ? (
+                                    <p className="text-sm text-slate-400 italic">None</p>
+                                ) : (
+                                    <div className="flex flex-col gap-2">
+                                        {item.prereqs.map(pId => {
+                                            const p = allItems.find(x => x.id === pId);
+                                            return (
+                                                <button key={pId} onClick={() => onSelect(pId)} className="text-left text-xs p-2 rounded border border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100 transition-colors">
+                                                    <span className="font-bold">{pId}:</span> {p?.title || 'Unknown'}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </section>
+
+                            <section>
+                                <h3 className="text-xs font-bold tracking-wider text-emerald-600 uppercase mb-2">Unlocks ({item.unlocks.length})</h3>
+                                {item.unlocks.length === 0 ? (
+                                    <p className="text-sm text-slate-400 italic">None</p>
+                                ) : (
+                                    <div className="flex flex-col gap-2">
+                                        {item.unlocks.map(uId => {
+                                            const u = allItems.find(x => x.id === uId);
+                                            return (
+                                                <button key={uId} onClick={() => onSelect(uId)} className="text-left text-xs p-2 rounded border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-colors">
+                                                    <span className="font-bold">{uId}:</span> {u?.title || 'Unknown'}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </section>
+                        </div>
+
+                        <section>
+                            <h3 className="text-xs font-bold tracking-wider text-slate-400 uppercase mb-2">Phase Action Checklist</h3>
+                            <div className="flex flex-col gap-3">
+                                {Object.entries(item.phases || {}).map(([phase, desc]) => (
+                                    <div key={phase} className="flex gap-3">
+                                        <div className="w-8 h-8 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center font-bold text-xs shrink-0">
+                                            {phase.toUpperCase()}
+                                        </div>
+                                        <p className="text-sm text-slate-700 pt-1 leading-relaxed">{desc}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const AddItemModal = ({ isOpen, onClose, onSave, allItems }) => {
+            if (!isOpen) return null;
+
+            const [formData, setFormData] = useState({
+                id: '', title: '', wave: 0, timeframe: '', rationale: '', keyOutput: '', prereqs: [], unlocks: [], phases: { p1: '' }
+            });
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onSave({
+                    ...formData,
+                    wave: parseInt(formData.wave, 10)
+                });
+                onClose();
+            };
+
+            const toggleMulti = (field, id) => {
+                setFormData(prev => ({
+                    ...prev,
+                    [field]: prev[field].includes(id) ? prev[field].filter(x => x !== id) : [...prev[field], id]
+                }));
+            };
+
+            return (
+                <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <h2 className="text-xl font-bold text-slate-800">Add New Strategy / Wave 0 Item</h2>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><Icons.X /></button>
+                        </div>
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <form id="addForm" onSubmit={handleSubmit} className="flex flex-col gap-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Item ID</label>
+                                        <input required value={formData.id} onChange={e=>setFormData({...formData, id: e.target.value})} placeholder="e.g. W0-08 or 4.1" className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Wave</label>
+                                        <select value={formData.wave} onChange={e=>setFormData({...formData, wave: e.target.value})} className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                                            {[0,1,2,3,4].map(w => <option key={w} value={w}>Wave {w}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Title</label>
+                                    <input required value={formData.title} onChange={e=>setFormData({...formData, title: e.target.value})} className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Rationale</label>
+                                    <textarea required value={formData.rationale} onChange={e=>setFormData({...formData, rationale: e.target.value})} className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-20" />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Key Output</label>
+                                    <input required value={formData.keyOutput} onChange={e=>setFormData({...formData, keyOutput: e.target.value})} className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-2">Prerequisites</label>
+                                        <div className="border rounded h-40 overflow-y-auto p-2 bg-slate-50">
+                                            {allItems.map(i => (
+                                                <label key={i.id} className="flex items-center gap-2 p-1 text-sm cursor-pointer hover:bg-slate-100 rounded">
+                                                    <input type="checkbox" checked={formData.prereqs.includes(i.id)} onChange={() => toggleMulti('prereqs', i.id)} />
+                                                    <span className="font-bold w-12">{i.id}</span>
+                                                    <span className="truncate">{i.title}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-2">Unlocks (Downstream)</label>
+                                        <div className="border rounded h-40 overflow-y-auto p-2 bg-slate-50">
+                                            {allItems.map(i => (
+                                                <label key={i.id} className="flex items-center gap-2 p-1 text-sm cursor-pointer hover:bg-slate-100 rounded">
+                                                    <input type="checkbox" checked={formData.unlocks.includes(i.id)} onChange={() => toggleMulti('unlocks', i.id)} />
+                                                    <span className="font-bold w-12">{i.id}</span>
+                                                    <span className="truncate">{i.title}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+                            <button type="submit" form="addForm" className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm">Save Item</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP COMPONENT ---
+        const App = () => {
+            const [items, setItems] = useState(() => {
+                const saved = localStorage.getItem('r2r_data');
+                return saved ? JSON.parse(saved) : normalizeData(INITIAL_R2R_DATA);
+            });
+
+            const [view, setView] = useState('graph'); // 'graph' or 'kanban'
+            const [selectedNodeId, setSelectedNodeId] = useState(null);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [waveFilter, setWaveFilter] = useState('All');
+            const [isModalOpen, setIsModalOpen] = useState(false);
+
+            useEffect(() => {
+                localStorage.setItem('r2r_data', JSON.stringify(items));
+            }, [items]);
+
+            const handleAddItem = (newItem) => {
+                const updatedItems = normalizeData([...items, newItem]);
+                setItems(updatedItems);
+            };
+
+            const handleReset = () => {
+                if(confirm('Are you sure you want to reset to the default dataset? Custom items will be lost.')) {
+                    setItems(normalizeData(INITIAL_R2R_DATA));
+                    setSelectedNodeId(null);
+                }
+            };
+
+            const handleExport = () => {
+                const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'r2r_data.json';
+                a.click();
+            };
+
+            const selectedItem = items.find(i => i.id === selectedNodeId);
+
+            return (
+                <div className="h-full flex flex-col font-sans">
+                    {/* Header */}
+                    <header className="bg-white border-b border-slate-200 shadow-sm z-30 shrink-0">
+                        <div className="px-8 py-4 flex items-center justify-between">
+                            <div>
+                                <h1 className="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                                    Rain to River (R2R) Implementation Explorer
+                                </h1>
+                                <p className="text-slate-500 text-sm mt-1">Interactive Strategic Dependency & Trigger Matrix (2026–2036)</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+                                    <Icons.Plus /> Add Item / Wave 0
+                                </button>
+                                <button onClick={handleExport} title="Export JSON" className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200">
+                                    <Icons.Download />
+                                </button>
+                                <button onClick={handleReset} title="Reset to Defaults" className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-slate-200">
+                                    <Icons.RefreshCw />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Toolbar */}
+                        <div className="px-8 py-3 border-t border-slate-100 bg-slate-50/50 flex flex-wrap gap-6 items-center justify-between">
+                            
+                            <div className="flex bg-slate-100/80 rounded-lg p-1 border border-slate-200/60 shadow-sm">
+                                <button onClick={() => setView('graph')} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'graph' ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>
+                                    <Icons.Network /> Network Graph
+                                </button>
+                                <button onClick={() => setView('kanban')} className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'kanban' ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>
+                                    <Icons.Kanban /> Wave Swimlane
+                                </button>
+                            </div>
+
+                            <div className="flex items-center gap-4 flex-1 justify-end">
+                                <div className="flex bg-slate-100/80 rounded-lg p-1 border border-slate-200/60 shadow-sm">
+                                    {['All', '0', '1', '2', '3', '4'].map(w => (
+                                        <button 
+                                            key={w} 
+                                            onClick={() => { setWaveFilter(w); setSelectedNodeId(null); }}
+                                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${waveFilter === w ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            {w === 'All' ? 'All Waves' : `W${w}`}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div className="relative flex items-center bg-slate-100 rounded-lg px-3 py-1.5 border border-slate-200 shadow-sm">
+                                    <div className="text-slate-400">
+                                        <Icons.Search />
+                                    </div>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Search nodes..." 
+                                        value={searchQuery}
+                                        onChange={e => setSearchQuery(e.target.value)}
+                                        className="bg-transparent border-none text-slate-800 text-sm ml-2 focus:ring-0 outline-none w-64 placeholder-slate-400" 
+                                    />
+                                    {searchQuery && (
+                                        <button onClick={() => setSearchQuery('')} className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">
+                                            <Icons.X />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content Area */}
+                    <main className="flex-1 flex overflow-hidden relative">
+                        {/* Dynamic Container for Graph/Kanban (70% width if drawer is open) */}
+                        <div className={`flex-1 transition-all duration-300 ease-in-out relative ${selectedItem ? 'mr-96' : ''}`}>
+                            
+                            {/* Active Filters / Selection Banner */}
+                            {(selectedNodeId || waveFilter !== 'All' || searchQuery) && (
+                                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-2">
+                                    {selectedNodeId && (
+                                        <div className="bg-white text-slate-800 px-4 py-2 rounded-full text-sm font-medium shadow-md flex items-center gap-2 border border-slate-200">
+                                            <span className="text-slate-500">Selected:</span> <span className="font-bold text-indigo-600">{selectedNodeId}</span>
+                                            <button onClick={() => setSelectedNodeId(null)} className="ml-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full p-1 transition-colors"><Icons.X /></button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {view === 'graph' ? (
+                                <NetworkGraph 
+                                    items={items} 
+                                    selectedId={selectedNodeId} 
+                                    onSelect={setSelectedNodeId}
+                                    waveFilter={waveFilter}
+                                    searchQuery={searchQuery}
+                                />
+                            ) : (
+                                <SwimlaneView 
+                                    items={items} 
+                                    selectedId={selectedNodeId} 
+                                    onSelect={setSelectedNodeId}
+                                    waveFilter={waveFilter}
+                                    searchQuery={searchQuery}
+                                />
+                            )}
+                        </div>
+
+                        {/* Inspector Drawer (30% width overlay) */}
+                        <DetailDrawer 
+                            item={selectedItem} 
+                            onClose={() => setSelectedNodeId(null)}
+                            onSelect={setSelectedNodeId}
+                            allItems={items}
+                        />
+                    </main>
+
+                    {/* Modal */}
+                    <AddItemModal 
+                        isOpen={isModalOpen}
+                        onClose={() => setIsModalOpen(false)}
+                        onSave={handleAddItem}
+                        allItems={items}
+                    />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
