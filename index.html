@@ -627,6 +627,8 @@
                 // 2. Identify upstream and downstream subsets
                 const upstream = new Set();
                 const downstream = new Set();
+                const directPrereqs = new Set();
+                const directUnlocks = new Set();
                 if (selectedId) {
                     const dfs = (node, graph, set) => {
                         graph[node]?.forEach(n => {
@@ -635,6 +637,8 @@
                     };
                     dfs(selectedId, revAdj, upstream);
                     dfs(selectedId, adj, downstream);
+                    revAdj[selectedId]?.forEach(id => directPrereqs.add(id));
+                    adj[selectedId]?.forEach(id => directUnlocks.add(id));
                 }
 
                 // 3. Prepare Nodes
@@ -651,8 +655,10 @@
 
                 const nodes = items.map(item => {
                     const isSelected = item.id === selectedId;
-                    const isUp = upstream.has(item.id);
-                    const isDown = downstream.has(item.id);
+                    const isDirectUp = directPrereqs.has(item.id);
+                    const isDirectDown = directUnlocks.has(item.id);
+                    const isIndirectUp = !isDirectUp && upstream.has(item.id);
+                    const isIndirectDown = !isDirectDown && downstream.has(item.id);
                     
                     let bg = WAVE_COLORS[item.wave];
                     let font = '#ffffff';
@@ -660,9 +666,10 @@
 
                     if (selectedId) {
                         if (isSelected) bg = '#4f46e5'; // Indigo-600
-                        else if (isUp) bg = '#f97316'; // Orange/Red
-                        else if (isDown) bg = '#10b981'; // Emerald-500
-                        else { bg = '#f1f5f9'; font = '#94a3b8'; opacity = 0.5; }
+                        else if (isDirectUp) bg = '#f97316'; // Orange/Red (Direct Prereq)
+                        else if (isDirectDown) bg = '#10b981'; // Emerald-500 (Direct Unlock)
+                        else if (isIndirectUp || isIndirectDown) { bg = '#cbd5e1'; font = '#334155'; opacity = 0.9; } // Grey for indirect
+                        else { bg = '#f1f5f9'; font = '#94a3b8'; opacity = 0.4; }
                     } else {
                         const waveMatch = waveFilter === 'All' || item.wave.toString() === waveFilter;
                         const searchMatch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -697,12 +704,12 @@
                         let opacity = 0.5;
 
                         if (selectedId) {
-                            if (upstream.has(i.id) && (upstream.has(u) || u === selectedId)) {
-                                color = '#f97316'; opacity = 1;
-                            } else if ((i.id === selectedId || downstream.has(i.id)) && downstream.has(u)) {
-                                color = '#10b981'; opacity = 1;
+                            if (u === selectedId) {
+                                color = '#f97316'; opacity = 1; // Incoming from direct prereq
+                            } else if (i.id === selectedId) {
+                                color = '#10b981'; opacity = 1; // Outgoing to direct unlock
                             } else {
-                                color = '#f1f5f9'; opacity = 0.2;
+                                color = '#f1f5f9'; opacity = 0.15; // Unrelated/indirect edges (faded but layout-preserving)
                             }
                         } else if (waveFilter === 'All' && !searchQuery) {
                             color = '#cbd5e1'; opacity = 0.8;
@@ -733,6 +740,8 @@
             });
             const upstream = new Set();
             const downstream = new Set();
+            const directPrereqs = new Set();
+            const directUnlocks = new Set();
             if (selectedId) {
                 const dfs = (node, graph, set) => {
                     graph[node]?.forEach(n => {
@@ -741,6 +750,8 @@
                 };
                 dfs(selectedId, revAdj, upstream);
                 dfs(selectedId, adj, downstream);
+                revAdj[selectedId]?.forEach(id => directPrereqs.add(id));
+                adj[selectedId]?.forEach(id => directUnlocks.add(id));
             }
 
             return (
@@ -759,8 +770,10 @@
                                 <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
                                     {waveItems.map(item => {
                                         const isSelected = item.id === selectedId;
-                                        const isUp = upstream.has(item.id);
-                                        const isDown = downstream.has(item.id);
+                                        const isDirectUp = directPrereqs.has(item.id);
+                                        const isDirectDown = directUnlocks.has(item.id);
+                                        const isIndirectUp = !isDirectUp && upstream.has(item.id);
+                                        const isIndirectDown = !isDirectDown && downstream.has(item.id);
                                         const searchMatch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
                                         
                                         if (!searchMatch && searchQuery) return null;
@@ -768,8 +781,9 @@
                                         let style = "bg-white border-slate-200 text-slate-700";
                                         if (selectedId) {
                                             if (isSelected) style = "bg-indigo-50 border-indigo-400 text-indigo-900 ring-2 ring-indigo-400 shadow-md";
-                                            else if (isUp) style = "bg-orange-50 border-orange-400 text-orange-900";
-                                            else if (isDown) style = "bg-emerald-50 border-emerald-400 text-emerald-900";
+                                            else if (isDirectUp) style = "bg-orange-50 border-orange-400 text-orange-900";
+                                            else if (isDirectDown) style = "bg-emerald-50 border-emerald-400 text-emerald-900";
+                                            else if (isIndirectUp || isIndirectDown) style = "bg-slate-200 border-slate-300 text-slate-700";
                                             else style = "bg-white border-slate-200 text-slate-400 opacity-50";
                                         }
 
