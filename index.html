@@ -111,7 +111,7 @@
 
         // --- COMPONENTS ---
 
-        const NetworkGraph = ({ items, selectedId, onSelect, waveFilter, searchQuery }) => {
+        const NetworkGraph = ({ items, selectedId, onSelect, waveFilter, searchQuery, showIndirectArrows }) => {
             const containerRef = useRef(null);
             const networkRef = useRef(null);
 
@@ -240,31 +240,78 @@
                 items.forEach(i => {
                     i.unlocks.forEach(u => {
                         if (!items.find(x => x.id === u)) return;
-                        let color = '#cbd5e1'; // default dim
-                        let opacity = 0.5;
 
                         if (selectedId) {
-                            if (u === selectedId) {
-                                color = '#f97316'; opacity = 1; // Incoming from direct prereq
-                            } else if (i.id === selectedId) {
-                                color = '#10b981'; opacity = 1; // Outgoing to direct unlock
-                            } else {
-                                color = '#f1f5f9'; opacity = 0.15; // Unrelated/indirect edges (faded but layout-preserving)
-                            }
-                        } else if (waveFilter === 'All' && !searchQuery) {
-                            color = '#cbd5e1'; opacity = 0.8;
-                        }
+                            // --- SELECTED NODE MODE ---
+                            const isDirectPrereqEdge = (u === selectedId);           // Arrow INTO selected
+                            const isDirectUnlockEdge = (i.id === selectedId);        // Arrow OUT of selected
+                            const isIndirectEdge = (
+                                (upstream.has(i.id) && upstream.has(u)) ||           // Both in upstream chain
+                                (downstream.has(i.id) && downstream.has(u)) ||      // Both in downstream chain
+                                (upstream.has(i.id) && u === selectedId) ||          // Indirect feeding into selected's direct prereq chain
+                                (i.id === selectedId && downstream.has(u)) ||        // Covered by directUnlockEdge but extra guard
+                                // Edge within connected territory
+                                ((upstream.has(i.id) || directPrereqs.has(i.id)) && (upstream.has(u) || u === selectedId)) ||
+                                ((downstream.has(u) || directUnlocks.has(u)) && (downstream.has(i.id) || i.id === selectedId))
+                            );
 
-                        edges.push({
-                            from: i.id,
-                            to: u,
-                            color: { color, opacity, highlight: color, hover: color }
-                        });
+                            if (isDirectPrereqEdge) {
+                                edges.push({ from: i.id, to: u, color: { color: '#f97316', opacity: 1, highlight: '#f97316', hover: '#f97316' }, width: 2.5 });
+                            } else if (isDirectUnlockEdge) {
+                                edges.push({ from: i.id, to: u, color: { color: '#10b981', opacity: 1, highlight: '#10b981', hover: '#10b981' }, width: 2.5 });
+                            } else if (isIndirectEdge && showIndirectArrows) {
+                                // Grey indirect arrows - only visible if showIndirectArrows is on
+                                edges.push({ from: i.id, to: u, color: { color: '#94a3b8', opacity: 0.55, highlight: '#94a3b8', hover: '#94a3b8' }, width: 1.5 });
+                            }
+                            // Unconnected edges: not pushed at all (hidden)
+                        } else {
+                            // --- UNFILTERED / OVERVIEW MODE ---
+                            // Determine the relationship type relative to EACH edge endpoint
+                            // Every edge has a type: direct prereq feed, direct unlock feed, or indirect
+                            // We color-code based on which items are connected
+                            // Since no node is selected, we do a general color by "direction type":
+                            // Orange = arrow that comes INTO a node as its direct prereq
+                            // Green = arrow that goes OUT of a node as its direct unlock
+                            // Grey = edges between nodes where neither end is a direct neighbour
+                            // In the overview, every edge IS a direct connection (from→to is an explicit unlock),
+                            // so we classify:
+                            //   - Orange: edge where `u` lists `i.id` in its prereqs (prereq → target)
+                            //   - Green: edge where `i.id` lists `u` in its unlocks (source → unlock)
+                            // Actually every edge satisfies both (they're the same edge). We need a simpler rule:
+                            // Use GREEN for all direct edges (they are all direct unlocks), and
+                            // GREY for edges that are "transitive" / skip-level connections.
+                            // Simplest meaningful split: If |i.wave - u.wave| > 1, it's a long-jump (indirect-style) → grey.
+                            // Otherwise alternate orange/green by source wave to show flow direction visually.
+                            const srcItem = items.find(x => x.id === i.id);
+                            const tgtItem = items.find(x => x.id === u);
+                            const waveDiff = (tgtItem?.wave ?? 0) - (srcItem?.wave ?? 0);
+
+                            let color, opacity;
+                            if (!showIndirectArrows && waveDiff > 1) {
+                                // Hide long-jump indirect arrows when filter is off
+                                return;
+                            }
+
+                            if (waveDiff > 1) {
+                                // Long-range skip-wave → Grey (indirect)
+                                color = '#94a3b8'; opacity = 0.5;
+                            } else if (waveDiff <= 0) {
+                                // Same-wave or backwards → Grey (indirect)
+                                color = '#94a3b8'; opacity = 0.5;
+                            } else {
+                                // Adjacent-wave direct connection → Green (direct unlock arrow)
+                                // Consistent with selected-node mode where outgoing arrows are green.
+                                // Orange is reserved for "prereq arrows INTO a selected node".
+                                color = '#10b981'; opacity = 0.75; // Green for direct unlocks
+                            }
+
+                            edges.push({ from: i.id, to: u, color: { color, opacity, highlight: color, hover: color } });
+                        }
                     });
                 });
 
                 networkRef.current.setData({ nodes, edges });
-            }, [items, selectedId, waveFilter, searchQuery]);
+            }, [items, selectedId, waveFilter, searchQuery, showIndirectArrows]);
 
             return <div ref={containerRef} className="w-full h-full bg-slate-50 outline-none" />;
         };
@@ -565,6 +612,7 @@
             const [searchQuery, setSearchQuery] = useState('');
             const [waveFilter, setWaveFilter] = useState('All');
             const [isModalOpen, setIsModalOpen] = useState(false);
+            const [showIndirectArrows, setShowIndirectArrows] = useState(true);
 
             useEffect(() => {
                 localStorage.setItem('r2r_data', JSON.stringify(items));
@@ -629,6 +677,25 @@
                                 </button>
                             </div>
 
+                            {/* Indirect Arrows Toggle — always visible in graph mode */}
+                            {view === 'graph' && (
+                                <button
+                                    onClick={() => setShowIndirectArrows(v => !v)}
+                                    title={showIndirectArrows ? 'Hide indirect connection arrows' : 'Show indirect connection arrows'}
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors shadow-sm ${
+                                        showIndirectArrows
+                                            ? 'bg-slate-200 text-slate-700 border-slate-300 hover:bg-slate-300'
+                                            : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <span style={{display:'inline-flex', alignItems:'center', gap:'4px'}}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4 2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                                        Indirect Arrows
+                                    </span>
+                                    <span className={`w-2 h-2 rounded-full ${showIndirectArrows ? 'bg-slate-500' : 'bg-slate-300'}`}></span>
+                                </button>
+                            )}
+
                             <div className="flex items-center gap-4 flex-1 justify-end">
                                 <div className="flex bg-slate-100/80 rounded-lg p-1 border border-slate-200/60 shadow-sm">
                                     {['All', '0', '1', '2', '3', '4'].map(w => (
@@ -687,6 +754,7 @@
                                     onSelect={setSelectedNodeId}
                                     waveFilter={waveFilter}
                                     searchQuery={searchQuery}
+                                    showIndirectArrows={showIndirectArrows}
                                 />
                             ) : (
                                 <SwimlaneView 
