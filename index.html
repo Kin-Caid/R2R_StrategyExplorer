@@ -293,10 +293,10 @@
 
                 networkRef.current.setData({ nodes, edges });
 
-                // Fit the viewport after the layout engine has settled
-                setTimeout(() => {
-                    if (networkRef.current) networkRef.current.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
-                }, 50);
+                // Fit the viewport after the canvas has been fully painted
+                networkRef.current.once('afterDrawing', () => {
+                    if (networkRef.current) networkRef.current.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+                });
             }, [items, selectedId, waveFilter, searchQuery, showIndirectArrows]);
 
             return <div ref={containerRef} className="w-full h-full bg-slate-50 outline-none" />;
