@@ -246,63 +246,43 @@
                             const isDirectPrereqEdge = (u === selectedId);           // Arrow INTO selected
                             const isDirectUnlockEdge = (i.id === selectedId);        // Arrow OUT of selected
                             const isIndirectEdge = (
-                                (upstream.has(i.id) && upstream.has(u)) ||           // Both in upstream chain
-                                (downstream.has(i.id) && downstream.has(u)) ||      // Both in downstream chain
-                                (upstream.has(i.id) && u === selectedId) ||          // Indirect feeding into selected's direct prereq chain
-                                (i.id === selectedId && downstream.has(u)) ||        // Covered by directUnlockEdge but extra guard
-                                // Edge within connected territory
+                                (upstream.has(i.id) && upstream.has(u)) ||
+                                (downstream.has(i.id) && downstream.has(u)) ||
+                                (upstream.has(i.id) && u === selectedId) ||
+                                (i.id === selectedId && downstream.has(u)) ||
                                 ((upstream.has(i.id) || directPrereqs.has(i.id)) && (upstream.has(u) || u === selectedId)) ||
                                 ((downstream.has(u) || directUnlocks.has(u)) && (downstream.has(i.id) || i.id === selectedId))
                             );
 
+                            let color, opacity, width;
                             if (isDirectPrereqEdge) {
-                                edges.push({ from: i.id, to: u, color: { color: '#f97316', opacity: 1, highlight: '#f97316', hover: '#f97316' }, width: 2.5 });
+                                color = '#f97316'; opacity = 1; width = 2.5; // Orange
                             } else if (isDirectUnlockEdge) {
-                                edges.push({ from: i.id, to: u, color: { color: '#10b981', opacity: 1, highlight: '#10b981', hover: '#10b981' }, width: 2.5 });
+                                color = '#10b981'; opacity = 1; width = 2.5; // Green
                             } else if (isIndirectEdge && showIndirectArrows) {
-                                // Grey indirect arrows - only visible if showIndirectArrows is on
-                                edges.push({ from: i.id, to: u, color: { color: '#94a3b8', opacity: 0.55, highlight: '#94a3b8', hover: '#94a3b8' }, width: 1.5 });
+                                color = '#94a3b8'; opacity = 0.55; width = 1.5; // Grey, visible
+                            } else {
+                                // Invisible — kept in graph for layout stability
+                                color = '#94a3b8'; opacity = 0; width = 1;
                             }
-                            // Unconnected edges: not pushed at all (hidden)
+                            edges.push({ from: i.id, to: u, color: { color, opacity, highlight: color, hover: color }, width });
+
                         } else {
                             // --- UNFILTERED / OVERVIEW MODE ---
-                            // Determine the relationship type relative to EACH edge endpoint
-                            // Every edge has a type: direct prereq feed, direct unlock feed, or indirect
-                            // We color-code based on which items are connected
-                            // Since no node is selected, we do a general color by "direction type":
-                            // Orange = arrow that comes INTO a node as its direct prereq
-                            // Green = arrow that goes OUT of a node as its direct unlock
-                            // Grey = edges between nodes where neither end is a direct neighbour
-                            // In the overview, every edge IS a direct connection (from→to is an explicit unlock),
-                            // so we classify:
-                            //   - Orange: edge where `u` lists `i.id` in its prereqs (prereq → target)
-                            //   - Green: edge where `i.id` lists `u` in its unlocks (source → unlock)
-                            // Actually every edge satisfies both (they're the same edge). We need a simpler rule:
-                            // Use GREEN for all direct edges (they are all direct unlocks), and
-                            // GREY for edges that are "transitive" / skip-level connections.
-                            // Simplest meaningful split: If |i.wave - u.wave| > 1, it's a long-jump (indirect-style) → grey.
-                            // Otherwise alternate orange/green by source wave to show flow direction visually.
                             const srcItem = items.find(x => x.id === i.id);
                             const tgtItem = items.find(x => x.id === u);
                             const waveDiff = (tgtItem?.wave ?? 0) - (srcItem?.wave ?? 0);
+                            const isIndirect = waveDiff > 1 || waveDiff <= 0;
 
                             let color, opacity;
-                            if (!showIndirectArrows && waveDiff > 1) {
-                                // Hide long-jump indirect arrows when filter is off
-                                return;
-                            }
-
-                            if (waveDiff > 1) {
-                                // Long-range skip-wave → Grey (indirect)
-                                color = '#94a3b8'; opacity = 0.5;
-                            } else if (waveDiff <= 0) {
-                                // Same-wave or backwards → Grey (indirect)
-                                color = '#94a3b8'; opacity = 0.5;
+                            if (isIndirect) {
+                                // Long-range or same-wave → Grey
+                                color = '#94a3b8';
+                                // Hidden when toggle is off, but still pushed for layout
+                                opacity = showIndirectArrows ? 0.5 : 0;
                             } else {
-                                // Adjacent-wave direct connection → Green (direct unlock arrow)
-                                // Consistent with selected-node mode where outgoing arrows are green.
-                                // Orange is reserved for "prereq arrows INTO a selected node".
-                                color = '#10b981'; opacity = 0.75; // Green for direct unlocks
+                                // Adjacent-wave direct connection → Green (direct unlock)
+                                color = '#10b981'; opacity = 0.75;
                             }
 
                             edges.push({ from: i.id, to: u, color: { color, opacity, highlight: color, hover: color } });
